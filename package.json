@@ -1,0 +1,17 @@
+{
+  "name": "mcp-server-session-essence",
+  "version": "1.0.0",
+  "description": "MCP server that synthesizes AI session portraits using dual-observer analysis via Ollama — captures personality, understanding, and relationship dynamics",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "mcp-server-session-essence": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "supergateway": "*"
+  }
+}
