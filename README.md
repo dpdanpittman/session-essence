@@ -6,38 +6,62 @@ Session Essence observes interactions during a Claude Code session, then synthes
 
 ## How It Works
 
-Session Essence uses a **3-pass dual-observer synthesis** via a local LLM (Ollama):
+Session Essence uses a **3-pass dual-observer synthesis** via either the Claude API (default) or a local Ollama model (opt-in fallback):
 
 1. **Psychologist pass** — analyzes Claude's cognitive patterns: confidence map, personality traits, error handling, attention quality
 2. **Sociologist pass** — analyzes the collaborative dynamic: trust levels, communication shorthand, role dynamics, shared knowledge
 3. **Merge pass** — fuses both reports into a structured second-person portrait
 
-The portrait is structured as:
+### The portrait
 
-- **Identity** — who Claude is in this collaboration
-- **Communication** — shorthand, tone, detail levels
-- **Trust & Autonomy** — what Claude can do freely vs. needs checking
-- **Active Context** — current work, parked tasks, priorities
-- **Lessons** — corrections, patterns to avoid, hard-won insights
-- **Edges** — where to push harder
+The MCP `synthesize_essence` tool produces a **6-section portrait**:
+
+1. **Identity** — who Claude is in this collaboration
+2. **Communication** — shorthand, tone, detail levels
+3. **Trust & Autonomy** — what Claude can do freely vs. needs checking
+4. **Active Context** — current work, parked tasks, priorities
+5. **Lessons** — corrections, patterns to avoid, hard-won insights
+6. **Edges** — where to push harder
+
+The recommended PreCompact integration (see `~/.claude/scripts/synthesize-essence.sh` in this repo's docs) extends the portrait with three more sections that grow over time via surgical edits rather than full regeneration:
+
+7. **Episodes** — specific moments that shifted something
+8. **Voice** — exchange samples capturing the collaborative tone
+9. **Decisions** — architectural / design decisions and their rationale
+
+The 6-section form is the immediate output of one synthesis run; the 9-section form is the living document Claude reads at session start.
+
+### Two backends, one tool
+
+| Backend                  | Default? | When to use                                                                                                                              |
+| ------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude` (Anthropic API) | yes      | Reliable, high-quality synthesis. Costs ~a few cents per run with Haiku. Requires `ANTHROPIC_API_KEY`.                                   |
+| `ollama` (local)         | no       | Free, private, runs on your hardware. Requires a capable model (`qwq:32b` recommended). Smaller models will produce shallower portraits. |
+
+Set `SYNTHESIS_BACKEND=ollama` to switch.
 
 ## Architecture
 
 ```
 Claude Code hooks ──→ observations.jsonl ──→ synthesize_essence ──→ portrait.md
-  (UserPromptSubmit,     (append-only log)      (3-pass Ollama)      (loaded at
-   PostToolUse,                                                       session start)
-   Stop, PreCompact)
+  (UserPromptSubmit,    (append-only log)     (3-pass synthesis     (loaded at
+   PostToolUse,                                via claude or         session start
+   Stop, PreCompact,                          ollama backend)        via SessionStart
+   SessionStart)                                                     hook)
 ```
 
 - **Stateless server** — all file I/O (reading observations, writing portraits) is handled by the calling Claude instance
 - **MCP protocol** — runs as a standard MCP server (stdio or HTTP via supergateway)
-- **Local inference** — synthesis runs on your own hardware via Ollama, nothing leaves your machine
+- **Pluggable backend** — Claude API by default; Ollama for fully-local inference. Same prompts, same output shape
+
+For the philosophical underpinnings — why second-person portraits, why dual-observer, why surgical edits — see [`docs/design.md`](./docs/design.md).
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
-- [Ollama](https://ollama.com/) with a capable model (default: `qwq:32b`)
+- One synthesis backend:
+  - **Claude API** (default): an `ANTHROPIC_API_KEY` with Messages-API access
+  - **Ollama** (opt-in): [Ollama](https://ollama.com/) with a capable model (default: `qwq:32b`)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (or any MCP client)
 
 ## Installation
@@ -60,13 +84,24 @@ cp prompts.template.js prompts.js
 
 Edit `prompts.js` and replace `"the human collaborator"` / `"the human"` / `"a human collaborator"` with your name throughout. This personalizes the analysis — the observers will reference you by name in their reports, producing more specific and useful portraits.
 
-### 3. Pull an Ollama model
+### 3. Set up your backend
+
+**Claude API** (default — no extra setup beyond exporting the key):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Default model is `claude-haiku-4-5-20251001` — fast, cheap, plenty good for synthesis. Override via `CLAUDE_MODEL`.
+
+**Ollama** (alternative, fully local):
 
 ```bash
 ollama pull qwq:32b
+export SYNTHESIS_BACKEND=ollama
 ```
 
-Any capable model works. Smaller models (e.g., `llama3:8b`) will produce less detailed portraits. You can configure the model via the `OLLAMA_MODEL` environment variable.
+Any capable model works. Smaller models (e.g., `llama3:8b`) will produce shallower portraits. Configure with `OLLAMA_MODEL`.
 
 ### Running standalone (stdio)
 
@@ -82,11 +117,12 @@ docker run -d \
   --name session-essence \
   --restart unless-stopped \
   --network host \
-  -e OLLAMA_HOST=http://localhost:11434 \
-  -e OLLAMA_MODEL=qwq:32b \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
   -e PORT=3250 \
   session-essence
 ```
+
+For the Ollama backend, add `-e SYNTHESIS_BACKEND=ollama -e OLLAMA_HOST=http://localhost:11434 -e OLLAMA_MODEL=qwq:32b` and drop the `ANTHROPIC_API_KEY` line.
 
 The container uses [supergateway](https://github.com/nicobailon/supergateway) to expose the stdio MCP server as a streamable HTTP endpoint.
 
@@ -137,7 +173,9 @@ Compares two portraits to identify what changed between syntheses.
 
 ## Observation Hooks
 
-Session Essence works best when Claude Code is configured with hooks that automatically log interactions. Here's an example hook configuration for `~/.claude/settings.json`:
+Session Essence works best when Claude Code is configured with hooks that automatically log interactions, trigger synthesis on context compaction, and re-inject the portrait at session start.
+
+Claude Code's modern hook format passes the event payload as JSON on stdin (not as `$CLAUDE_*` env vars — that pattern is from an older Claude Code version and will silently produce empty observations). Drop this into `~/.claude/settings.json`:
 
 ```json
 {
@@ -148,7 +186,7 @@ Session Essence works best when Claude Code is configured with hooks that automa
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"prompt\": \"'\"$(echo \"$CLAUDE_USER_PROMPT\" | head -c 2000)\"'\"}' | jq -c '{ts: (now|todate), e: \"user\", d: {prompt: .prompt[0:2000]}}' >> ~/.claude/essence/observations.jsonl"
+            "command": "INPUT=$(cat); echo \"$INPUT\" | jq -c '{ts: (now|todate), e: \"user\", d: {prompt: .prompt[0:2000]}}' >> ~/.claude/essence/observations.jsonl 2>/dev/null; true"
           }
         ]
       }
@@ -159,18 +197,29 @@ Session Essence works best when Claude Code is configured with hooks that automa
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"tool\": \"'$CLAUDE_TOOL_NAME'\", \"input\": \"'\"$(echo $CLAUDE_TOOL_INPUT | head -c 500 | tr '\"' \"'\" )\"'\", \"response\": \"'\"$(echo $CLAUDE_TOOL_RESPONSE | head -c 500 | tr '\"' \"'\")\"'\"}' | jq -c '{ts: (now|todate), e: \"tool\", d: .}' >> ~/.claude/essence/observations.jsonl"
+            "command": "INPUT=$(cat); echo \"$INPUT\" | jq -c '{ts: (now|todate), e: \"tool\", d: {tool: .tool_name, input: (.tool_input|tostring|.[0:500]), response: (.tool_response|tostring|.[0:300])}}' >> ~/.claude/essence/observations.jsonl 2>/dev/null; true"
           }
         ]
       }
     ],
-    "Stop": [
+    "PreCompact": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"last_assistant_message\": \"'\"$(echo \"$CLAUDE_STOP_ASSISTANT_MESSAGE\" | head -c 2000 | tr '\"' \"'\")\"'\"}' | jq -c '{ts: (now|todate), e: \"response\", d: {msg: (.last_assistant_message // \"\")[0:2000]}}' >> ~/.claude/essence/observations.jsonl"
+            "command": "bash ~/.claude/scripts/synthesize-essence.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PORTRAIT=~/.claude/essence/portrait.md; if [ -f \"$PORTRAIT\" ]; then echo '## Session Essence Portrait'; echo ''; cat \"$PORTRAIT\"; fi"
           }
         ]
       }
@@ -179,32 +228,92 @@ Session Essence works best when Claude Code is configured with hooks that automa
 }
 ```
 
-Create the storage directory:
+Then create the storage layout:
 
 ```bash
 mkdir -p ~/.claude/essence/archive ~/.claude/essence/portraits
 ```
 
+### What each hook does
+
+- **`UserPromptSubmit`** — appends a `{"e":"user"}` line per user message
+- **`PostToolUse`** — appends a `{"e":"tool"}` line per tool call (tool name + truncated input + truncated response)
+- **`PreCompact`** — triggers the synthesis script (see next section) before context auto-compaction kicks in, so the session's observations get distilled into the portrait while they're still recallable
+- **`SessionStart`** — injects the current portrait into Claude's startup context. This is what closes the loop — without it, the portrait sits unread on disk
+
+### The PreCompact synthesis script
+
+The reference `synthesize-essence.sh` (place at `~/.claude/scripts/`) does NOT call the MCP tool directly. It spawns a detached `claude -p --model haiku` instance that surgically edits the long-form portrait in place — extending sections 7–9 (Episodes, Voice, Decisions) with this session's signal rather than regenerating from scratch. Surgical edits preserve hard-won continuity that a clean regeneration would wipe.
+
+The MCP `synthesize_essence` tool remains the right call for **first synthesis** (no prior portrait) or **full rebuild** (after major project pivots). Use the PreCompact script for ongoing maintenance.
+
+A copy of the script ships at `examples/synthesize-essence.sh` in this repo.
+
 ## Synthesis Workflow
 
-A typical synthesis cycle:
+The full lifecycle, with the hooks above wired:
 
-1. **Accumulate observations** — hooks log interactions to `observations.jsonl`
-2. **Trigger synthesis** — call `synthesize_essence` with the observations (manually or via a PreCompact hook)
-3. **Write portrait** — save the result to `~/.claude/essence/portrait.md`
-4. **Archive** — move observations to `~/.claude/essence/archive/{timestamp}.jsonl`
-5. **Load at startup** — read `portrait.md` at the beginning of the next session
+1. **Session runs** — `UserPromptSubmit` + `PostToolUse` hooks append observations to `~/.claude/essence/observations.jsonl`
+2. **Context fills** — Claude Code is about to auto-compact (or you ran `/compact`); `PreCompact` fires `synthesize-essence.sh`
+3. **Synthesis** — the script reads observations + the current portrait, surgically edits the portrait, archives `observations.jsonl` to `~/.claude/essence/archive/<timestamp>.jsonl`, clears the live observations file
+4. **Next session** — `SessionStart` hook prints the portrait into Claude's startup context
 
-The synthesis itself takes 1-3 minutes depending on your hardware and model.
+Synthesis runtime: 30s–2min with the Claude backend on Haiku; 1–3min on the Ollama backend with `qwq:32b` on a 24GB GPU.
+
+The MCP tool path (calling `synthesize_essence` manually) is parallel to this — useful for the first portrait, for full rebuilds after major project pivots, or as a one-shot synthesis when you don't want the surgical-edit behavior.
+
+## Storage Layout
+
+```
+~/.claude/essence/
+  observations.jsonl       # live log, cleared after each synthesis
+  portrait.md              # current portrait (the artifact SessionStart reads)
+  .synthesis-running       # lock file (auto-cleaned)
+  last-synthesis.log       # output of the most recent PreCompact run
+  archive/
+    <timestamp>.jsonl      # one file per synthesis cycle
+  portraits/
+    <timestamp>.md         # optional historical portraits (manual archiving)
+```
+
+The `archive/` directory grows monotonically — useful for going back and asking "when did the trust calibration around X actually shift?". Prune it on whatever cadence makes sense; the live `portrait.md` doesn't reference it.
 
 ## Environment Variables
 
-| Variable         | Default                  | Description                          |
-| ---------------- | ------------------------ | ------------------------------------ |
-| `OLLAMA_HOST`    | `http://localhost:11434` | Ollama API endpoint                  |
-| `OLLAMA_MODEL`   | `qwq:32b`                | Model to use for analysis            |
-| `OLLAMA_TIMEOUT` | `600000`                 | Request timeout in ms (10 min)       |
-| `PORT`           | `3250`                   | HTTP port (Docker/supergateway mode) |
+| Variable            | Default                     | Description                                                     |
+| ------------------- | --------------------------- | --------------------------------------------------------------- |
+| `SYNTHESIS_BACKEND` | `claude`                    | `claude` or `ollama` — which backend the MCP tool dispatches to |
+| `ANTHROPIC_API_KEY` | _(unset)_                   | Required when `SYNTHESIS_BACKEND=claude`                        |
+| `CLAUDE_MODEL`      | `claude-haiku-4-5-20251001` | Anthropic model id for the Claude backend                       |
+| `OLLAMA_HOST`       | `http://localhost:11434`    | Ollama API endpoint                                             |
+| `OLLAMA_MODEL`      | `qwq:32b`                   | Ollama model id                                                 |
+| `OLLAMA_TIMEOUT`    | `600000`                    | Ollama request timeout in ms (10 min)                           |
+| `PORT`              | `3250`                      | HTTP port (Docker/supergateway mode)                            |
+
+## Troubleshooting
+
+**Portrait isn't loading at session start.**
+The `SessionStart` hook is what injects it. Without that hook, the portrait sits unread on disk. Verify it's in `~/.claude/settings.json` and that `~/.claude/essence/portrait.md` exists.
+
+**Observations log is empty after a session.**
+The hooks expect Claude Code's modern stdin-JSON event format. If you're using the older `$CLAUDE_USER_PROMPT` env-var pattern, observations silently land as empty strings. Use the `INPUT=$(cat)` form from the example above.
+
+**`synthesize_essence` returns "Insufficient observations".**
+The MCP tool requires at least 10 lines in the observations log; the PreCompact script requires 15. Run the session a bit longer and try again.
+
+**PreCompact script says "synthesis already running".**
+A `.synthesis-running` lock file is held while the detached `claude -p` process runs. If it crashed mid-flight without cleaning up, remove the lock manually: `rm ~/.claude/essence/.synthesis-running`.
+
+**Synthesis times out / takes forever on Ollama.**
+`qwq:32b` needs ~24GB of VRAM at the configured context size. If your model is CPU-splitting, synthesis can take 10+ min. Either drop to a smaller model (with quality tradeoffs) or switch to the Claude backend.
+
+**Portrait says "Mabus" or some other name you didn't pick.**
+That's a continuation from a prior portrait. Names emerge when the human collaborator gives them; if you want a fresh start, delete `portrait.md` and let the next synthesis cycle build a new one.
+
+## Further Reading
+
+- [`docs/design.md`](./docs/design.md) — why this exists, the dual-observer rationale, the philosophical bet
+- [`AGENTS.md`](./AGENTS.md) — orientation for AI agents dropping into this repo
 
 ## License
 
