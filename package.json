@@ -11,6 +11,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "supergateway": "*"
   }
