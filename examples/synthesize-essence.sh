@@ -205,6 +205,22 @@ trap - EXIT INT TERM HUP
     PORTRAIT_CHANGED=false
   fi
 
+  # --- v2.1: Portrait integrity sidecar (F-SEC-002) -----------------------
+  # Update .portrait.sha256 after every authorized edit. SessionStart will
+  # compare the file's actual hash against this sidecar — mismatch means
+  # the portrait was written by something OTHER than the synthesis pipeline
+  # (out-of-band edit, restored backup, attacker write). The sidecar uses
+  # the standard `shasum`-compatible format (`<hex>  <filename>`) so the
+  # SessionStart hook can verify with `shasum -c`.
+
+  if [ "$PORTRAIT_CHANGED" = "true" ] && [ -f "$PORTRAIT_FILE" ]; then
+    (
+      cd "$ESSENCE_DIR"
+      shasum -a 256 "$(basename "$PORTRAIT_FILE")" > "$(basename "$PORTRAIT_FILE").sha256"
+    )
+    echo "Essence: portrait sha256 sidecar updated" >> "$LOG_FILE"
+  fi
+
   # --- Wrapper-script shell operations (the parts that USED to be in the
   # agent prompt, now safe because they execute with the parent shell's
   # permissions, not the agent's). F-OPUS-002.
@@ -216,16 +232,42 @@ trap - EXIT INT TERM HUP
   fi
   rm -f "$ESSENCE_DIR/.needs-synthesis"
 
+  # --- v2.1: Drift-check cycle counter (F-OPUS-005) -----------------------
+  # The surgical-edit pipeline is an open-loop integrator. Every Nth cycle
+  # (default 10, configurable via DRIFT_CHECK_INTERVAL env), we set a
+  # `.drift-check-due` flag the SessionStart hook surfaces to the operator,
+  # who runs `bash examples/drift-check.sh` at their convenience. Manual
+  # check rather than auto-trigger: keeps the failure surface bounded
+  # (one detached agent per cycle, not two), and lets the operator pick
+  # when to spend the extra synthesis cost.
+
+  CYCLE_COUNTER_FILE="$ESSENCE_DIR/.cycle-count"
+  CURRENT_CYCLE=$(cat "$CYCLE_COUNTER_FILE" 2>/dev/null || echo 0)
+  NEXT_CYCLE=$((CURRENT_CYCLE + 1))
+  echo "$NEXT_CYCLE" > "$CYCLE_COUNTER_FILE"
+
+  DRIFT_CHECK_INTERVAL="${DRIFT_CHECK_INTERVAL:-10}"
+  DRIFT_DUE=false
+  if [ "$DRIFT_CHECK_INTERVAL" -gt 0 ] && [ $((NEXT_CYCLE % DRIFT_CHECK_INTERVAL)) -eq 0 ]; then
+    touch "$ESSENCE_DIR/.drift-check-due"
+    DRIFT_DUE=true
+  fi
+
   # F-OPUS-011: write a status file the operator can `cat` to see what
   # happened. Surfaces silent-failure modes (empty response, agent crash,
-  # portrait unchanged) without manually parsing the log.
+  # portrait unchanged) without manually parsing the log. v2.1 extends
+  # this with cycle + drift-check state.
   cat > "$STATUS_FILE" <<JSON
 {
   "last_run": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "agent_exit": ${AGENT_EXIT:-0},
   "portrait_changed": ${PORTRAIT_CHANGED},
   "observations_archived_to": "$ARCHIVE_PATH",
-  "log_file": "$LOG_FILE"
+  "log_file": "$LOG_FILE",
+  "cycle": ${NEXT_CYCLE},
+  "drift_check_interval": ${DRIFT_CHECK_INTERVAL},
+  "drift_check_due": ${DRIFT_DUE},
+  "cycles_until_next_drift_check": $((DRIFT_CHECK_INTERVAL - (NEXT_CYCLE % DRIFT_CHECK_INTERVAL)))
 }
 JSON
 

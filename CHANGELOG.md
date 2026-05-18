@@ -2,6 +2,30 @@
 
 All notable changes to Session Essence are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-05-18
+
+The deferred-from-v2.0.1 features release. Closes (or addresses-via-deployment-recipe) the four follow-ups the audit and v2.0.1 explicitly marked "not yet fixed."
+
+### Added
+
+- **Portrait integrity sidecar (F-SEC-002).** The PreCompact supervisor now writes `$ESSENCE_DIR/portrait.md.sha256` after every authorized portrait edit. The SessionStart hook (via `session-start-verify.sh`) verifies the live portrait's hash against the sidecar; mismatch prints a loud `PORTRAIT INTEGRITY WARNING` at the top of the injected context, surfacing out-of-band edits, restored backups, or attacker writes that the prior `cat portrait.md` hook silently accepted.
+- **Drift detection (F-OPUS-005).** Cycle counter (`$ESSENCE_DIR/.cycle-count`) tracked in the PreCompact wrapper. Every `DRIFT_CHECK_INTERVAL` cycles (default 10, configurable), the wrapper sets a `.drift-check-due` flag. SessionStart announces this; operator runs `bash examples/drift-check.sh` at their convenience. The drift agent (`claude -p` with `Read Write` only, bounded to one output path) audits each portrait section against recent archive evidence and emits a structured report (ALIGNED / DRIFTED / ANOMALOUS verdict per section) to `$ESSENCE_DIR/drift-reports/<timestamp>.md`.
+- **`ESSENCE_DIR` env var honored across all helpers (F-OPUS-009).** `synthesize-essence.sh`, `session-start-verify.sh`, `drift-check.sh` all default to `$HOME/.claude/essence` but accept an override. Multiple isolated session-essence instances can coexist on one machine — each with its own ESSENCE_DIR. Documented in README's Storage Layout and Environment Variables sections.
+- **`examples/session-start-verify.sh`** — new SessionStart hook helper that replaces the bare `cat portrait.md`. Adds integrity verification, drift-check-due announcement, and last-synthesis-status summary at the top of the injected context.
+- **`examples/drift-check.sh`** — manual drift audit runner. Operator runs this when SessionStart says it's due (or any time they suspect drift).
+
+### Changed
+
+- **Localhost-default Docker deployment (F-SEC-004).** README's `docker run` example now uses `-p 127.0.0.1:3250:3250 --add-host=host.docker.internal:host-gateway` instead of `--network host`. The container is no longer LAN-reachable by default. LAN exposure now requires an explicit reverse-proxy front-door pattern (README documents the Caddy + bearer-token recipe). The container's image itself is unchanged for this fix — pure deployment-recipe change. Operators with `--network host` deployments continue to work but should switch when convenient.
+- **`synthesize-essence.sh` supervisor** writes the new `cycle`, `drift_check_interval`, `drift_check_due`, and `cycles_until_next_drift_check` fields into `synthesis-status.json` alongside the existing fields.
+- **README Observation Hooks section** — SessionStart hook example now invokes `session-start-verify.sh` instead of bare cat. Install instructions for all three helper scripts added.
+- **README Storage Layout section** — annotated with `$ESSENCE_DIR/` prefix; documents the new sidecar, drift-reports/, cycle counters.
+
+### Deferred to v2.2 (or later)
+
+- **In-image bearer-token auth.** v2.1 ships F-SEC-004 via the deployment-recipe change + reverse-proxy pattern. Operators who want bearer-token auth built into the container directly (no Caddy / nginx required) get it in v2.2 if there's demand. The localhost-default binding closes the worst part of F-SEC-004 — the unauthenticated LAN exposure — without that work.
+- **Automatic drift remediation.** v2.1's drift-check produces a structured report; the operator decides what to do with it. v2.2 could auto-apply DRIFTED-flagged section corrections OR auto-quarantine ANOMALOUS findings. Premature without operational experience on the audit format first.
+
 ## [2.0.1] — 2026-05-18
 
 Post-audit security + correctness fixes addressing the findings from `P-session-essence-audit` (see `.tribunal/reports/P-session-essence-audit/SYNTHESIS.md`). The trio + adversary returned 36 findings; this release addresses ~24 of them. The remaining items are deferred — see the "Not yet fixed" section at the end of this entry.

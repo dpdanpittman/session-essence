@@ -1,6 +1,6 @@
 {
   "name": "mcp-server-session-essence",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "MCP server that synthesizes AI session portraits via dual-observer analysis — Claude API or Ollama backend — captures personality, understanding, and relationship dynamics across sessions",
   "type": "module",
   "main": "index.js",

@@ -111,18 +111,46 @@ node index.js
 
 ### Running as HTTP endpoint (Docker)
 
+**Localhost-only (default; v2.1 recommended):**
+
 ```bash
 docker build -t session-essence .
 docker run -d \
   --name session-essence \
   --restart unless-stopped \
-  --network host \
+  -p 127.0.0.1:3250:3250 \
+  --add-host=host.docker.internal:host-gateway \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -e PORT=3250 \
+  -v "$(pwd)/prompts.js:/app/prompts.js:ro" \
   session-essence
 ```
 
-For the Ollama backend, add `-e SYNTHESIS_BACKEND=ollama -e OLLAMA_HOST=http://localhost:11434 -e OLLAMA_MODEL=qwq:32b` and drop the `ANTHROPIC_API_KEY` line.
+The `-p 127.0.0.1:3250:3250` binds the port to localhost only — no LAN exposure. `--add-host=host.docker.internal:host-gateway` lets the container reach Ollama running on the host. The `-v` mount lets your personalized `prompts.js` override the template `prompts.js` baked into the image.
+
+For the Ollama backend, swap `-e ANTHROPIC_API_KEY=...` for `-e SYNTHESIS_BACKEND=ollama -e OLLAMA_HOST=http://host.docker.internal:11434 -e OLLAMA_MODEL=qwq:32b`.
+
+**LAN exposure with auth (advanced):**
+
+The v2.0.0 release exposed `synthesize_essence` as an unauthenticated LAN-reachable endpoint by default (`F-SEC-004`). v2.1 fixes this via localhost-default binding. If you need LAN exposure — multiple machines hitting one synthesis server — put a reverse proxy with bearer-token auth in front:
+
+```
+operator devices → reverse proxy (Caddy / nginx with Bearer-token check) → 127.0.0.1:3250 (session-essence)
+```
+
+Example Caddy snippet:
+
+```caddy
+session-essence.your-domain {
+    reverse_proxy 127.0.0.1:3250
+    @noauth not header Authorization "Bearer {env.SESSION_ESSENCE_TOKEN}"
+    respond @noauth "Unauthorized" 401
+}
+```
+
+Then `claude mcp add session-essence --transport http --header "Authorization: Bearer ..." https://session-essence.your-domain/mcp`.
+
+In-image bearer-token auth is tracked as a possible follow-up. For now, the reverse-proxy pattern is the supported path for authenticated LAN exposure.
 
 The container uses [supergateway](https://github.com/nicobailon/supergateway) to expose the stdio MCP server as a streamable HTTP endpoint.
 
@@ -219,7 +247,7 @@ Claude Code's modern hook format passes the event payload as JSON on stdin (not 
         "hooks": [
           {
             "type": "command",
-            "command": "PORTRAIT=~/.claude/essence/portrait.md; if [ -f \"$PORTRAIT\" ]; then echo '## Session Essence Portrait'; echo ''; cat \"$PORTRAIT\"; fi"
+            "command": "bash ~/.claude/scripts/session-start-verify.sh"
           }
         ]
       }
@@ -228,10 +256,25 @@ Claude Code's modern hook format passes the event payload as JSON on stdin (not 
 }
 ```
 
+`session-start-verify.sh` (in `examples/`) replaces the bare `cat portrait.md` from prior versions. It still injects the portrait but additionally:
+
+- Verifies the portrait's sha256 against the `portrait.md.sha256` sidecar the PreCompact pipeline writes; warns loudly if they don't match (`F-SEC-002` — out-of-band edits, restored backups, or attacker writes are detectable).
+- Announces when a manual drift check is due (every 10 synthesis cycles by default, configurable via `DRIFT_CHECK_INTERVAL`; F-OPUS-005).
+- Surfaces the last synthesis status — if recent PreCompact runs silently no-op'd, the operator sees that at session start instead of weeks later.
+
 Then create the storage layout:
 
 ```bash
-mkdir -p ~/.claude/essence/archive ~/.claude/essence/portraits
+mkdir -p ~/.claude/essence/archive ~/.claude/essence/portraits ~/.claude/essence/drift-reports
+```
+
+Install the helper scripts:
+
+```bash
+cp examples/synthesize-essence.sh ~/.claude/scripts/synthesize-essence.sh
+cp examples/session-start-verify.sh ~/.claude/scripts/session-start-verify.sh
+cp examples/drift-check.sh ~/.claude/scripts/drift-check.sh
+chmod +x ~/.claude/scripts/*.sh
 ```
 
 ### What each hook does
@@ -265,30 +308,75 @@ The MCP tool path (calling `synthesize_essence` manually) is parallel to this �
 ## Storage Layout
 
 ```
-~/.claude/essence/
-  observations.jsonl       # live log, cleared after each synthesis
-  portrait.md              # current portrait (the artifact SessionStart reads)
-  .synthesis-running       # lock file (auto-cleaned)
-  last-synthesis.log       # output of the most recent PreCompact run
+$ESSENCE_DIR/                 # default: ~/.claude/essence/
+  observations.jsonl          # live log, cleared after each synthesis
+  portrait.md                 # current portrait (SessionStart reads this)
+  portrait.md.sha256          # integrity sidecar (v2.1+); F-SEC-002
+  synthesis-status.json       # last-run snapshot (cycle count + status); F-OPUS-011
+  .synthesis-running          # lock file (auto-cleaned via atomic acquire)
+  .cycle-count                # PreCompact cycle counter (drift-check schedule)
+  .drift-check-due            # flag set when drift check is queued
+  last-synthesis.log          # output of the most recent PreCompact run
+  last-drift-check.log        # output of the most recent drift-check.sh run
   archive/
-    <timestamp>.jsonl      # one file per synthesis cycle
+    <timestamp>.jsonl         # one file per synthesis cycle
+  drift-reports/
+    <timestamp>.md            # one file per drift-check.sh run; v2.1+
   portraits/
-    <timestamp>.md         # optional historical portraits (manual archiving)
+    <timestamp>.md            # optional historical portraits (manual archiving)
 ```
 
 The `archive/` directory grows monotonically — useful for going back and asking "when did the trust calibration around X actually shift?". Prune it on whatever cadence makes sense; the live `portrait.md` doesn't reference it.
 
+Set `ESSENCE_DIR=/custom/path` to use a non-default location. All three helper scripts (`synthesize-essence.sh`, `session-start-verify.sh`, `drift-check.sh`) honor it. This is how you run multiple isolated session-essence instances on one machine (one per Claude Code worktree, say) without their portraits colliding (F-OPUS-009 — the multi-instance fix the audit called for).
+
+## Drift Detection
+
+The surgical-edit pipeline is an **open-loop integrator**. Every PreCompact cycle nudges the portrait a small distance based on this session's observations; over many cycles, those small nudges could drift the portrait from the relationship reality without any single cycle being visibly wrong. v2.1 adds a manual calibration check (`F-OPUS-005`).
+
+Every `DRIFT_CHECK_INTERVAL` cycles (default 10), the PreCompact wrapper sets a `.drift-check-due` flag. The SessionStart hook (via `session-start-verify.sh`) announces this at the top of your next session's context. Run the check at your convenience:
+
+```bash
+bash ~/.claude/scripts/drift-check.sh
+```
+
+This spawns a fresh `claude -p` instance with `--allowedTools "Read Write"` (one specific output path) that:
+
+1. Reads the live `portrait.md` (the surgical-edited current state).
+2. Reads the last 5 archive files (oldest first; configurable via `DRIFT_ARCHIVE_LOOKBACK`).
+3. Audits each portrait section against archive evidence — alignment vs. drift vs. anomaly.
+4. Writes a structured drift report to `$ESSENCE_DIR/drift-reports/<timestamp>.md`.
+
+Review the report with `less`. Three verdicts:
+
+- **ALIGNED** — portrait still accurately models the relationship the archives document. Continue as-is.
+- **DRIFTED** — sections have moved away from archive evidence over many cycles. Manual portrait edits or a full re-synthesis recommended.
+- **ANOMALOUS** — content in the portrait not traceable to ANY archive observation. Possible synthesis hallucination, prompt-injection footprint, or out-of-band edit. Investigate before continuing to trust the portrait.
+
+The `.drift-check-due` flag clears automatically when the report lands.
+
 ## Environment Variables
+
+### Server (MCP process)
 
 | Variable            | Default                     | Description                                                     |
 | ------------------- | --------------------------- | --------------------------------------------------------------- |
 | `SYNTHESIS_BACKEND` | `claude`                    | `claude` or `ollama` — which backend the MCP tool dispatches to |
 | `ANTHROPIC_API_KEY` | _(unset)_                   | Required when `SYNTHESIS_BACKEND=claude`                        |
 | `CLAUDE_MODEL`      | `claude-haiku-4-5-20251001` | Anthropic model id for the Claude backend                       |
+| `CLAUDE_TIMEOUT`    | `120000`                    | Claude per-call timeout in ms (v2.0.1; F-PERF-002)              |
 | `OLLAMA_HOST`       | `http://localhost:11434`    | Ollama API endpoint                                             |
 | `OLLAMA_MODEL`      | `qwq:32b`                   | Ollama model id                                                 |
 | `OLLAMA_TIMEOUT`    | `600000`                    | Ollama request timeout in ms (10 min)                           |
 | `PORT`              | `3250`                      | HTTP port (Docker/supergateway mode)                            |
+
+### Helper scripts (PreCompact + SessionStart + drift check)
+
+| Variable                 | Default                 | Description                                                                                                                             |
+| ------------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `ESSENCE_DIR`            | `$HOME/.claude/essence` | Storage root for the helper scripts (F-OPUS-009). Use distinct paths to run multiple isolated session-essence instances on one machine. |
+| `DRIFT_CHECK_INTERVAL`   | `10`                    | Cycles between automatic drift-check-due flags. `0` disables.                                                                           |
+| `DRIFT_ARCHIVE_LOOKBACK` | `5`                     | How many recent archive files `drift-check.sh` audits against.                                                                          |
 
 ## Troubleshooting
 
