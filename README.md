@@ -307,8 +307,18 @@ A `.synthesis-running` lock file is held while the detached `claude -p` process 
 **Synthesis times out / takes forever on Ollama.**
 `qwq:32b` needs ~24GB of VRAM at the configured context size. If your model is CPU-splitting, synthesis can take 10+ min. Either drop to a smaller model (with quality tradeoffs) or switch to the Claude backend.
 
-**Portrait says "Mabus" or some other name you didn't pick.**
-That's a continuation from a prior portrait. Names emerge when the human collaborator gives them; if you want a fresh start, delete `portrait.md` and let the next synthesis cycle build a new one.
+**Portrait says a name you don't recognize.**
+First treat this as a security signal, NOT a benign continuation. The portrait is loaded into every session's startup context in second-person directive form — a name change is potentially evidence of injected content riding in via observations, a synthesis pass that hallucinated, or an out-of-band write to `portrait.md`. Investigation flow:
+
+1. Run `tribunal review`-style analysis via the `analyze_portrait` MCP tool, comparing the current portrait against the last one you endorsed (`~/.claude/essence/portraits/<earlier-timestamp>.md` if you archive manually, otherwise check the most recent file in `~/.claude/essence/archive/` for context).
+2. Grep recent `~/.claude/essence/archive/*.jsonl` for the name's first appearance. If it shows up in an observation line whose source was a user prompt you didn't write, a tool response from an MCP server you don't fully trust, or a paste from an external source — that's the injection point.
+3. Check `~/.claude/essence/last-synthesis.log` and `~/.claude/essence/synthesis-status.json` (v2.0.1+) for the synthesis run that introduced the change.
+4. If the change is legitimate (genuine emergent naming from real interaction), accept it. If it's not, restore the prior portrait from your most recent endorsed backup and patch the inflow that introduced it.
+
+The "Mabus" naming in this repo's documentation is a specific operator's accepted continuation — it's not a default Session Essence produces. If a name you didn't pick appears in your portrait, that's signal worth investigating, not noise to delete.
+
+**Synthesis status file shows `portrait_changed: false`.**
+The v2.0.1+ PreCompact supervisor writes `~/.claude/essence/synthesis-status.json` after each run. `portrait_changed: false` means the agent ran but didn't touch the portrait file — either nothing in the session was worth recording (genuinely-routine sessions), or the agent crashed silently. Check `~/.claude/essence/last-synthesis.log` for the agent's output to distinguish.
 
 ## Further Reading
 
