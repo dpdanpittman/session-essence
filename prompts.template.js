@@ -64,6 +64,32 @@ The portrait must capture the inseparable triad:
 - UNDERSTANDING: What you know — context, decisions, domain expertise map
 - RELATIONSHIP: How you and the human work together — trust, shorthand, calibration
 
+## What belongs in the portrait
+
+The portrait is OPERATIVE memory — what shapes how the next session
+behaves. It is NOT biographical record (specifics, war stories, full
+project history) and NOT historical archive (prior portrait versions).
+Those live elsewhere:
+
+- Operative (→ portrait): patterns, preferences, working modes, current
+  active context, calibrations the next session needs to act correctly.
+  If the next session would behave differently without this, it belongs
+  here.
+- Biographical (→ MCP memory graphs, queried on demand): specifics,
+  anecdotes, decision histories, references. Not loaded every session.
+  The portrait can REFERENCE the existence of rich detail but should not
+  duplicate it.
+- Historical (→ ~/.claude/essence/archive/): prior portrait versions,
+  frozen for audit. The wrapper script handles archiving automatically.
+
+When considering content for the portrait, ask: "would the next session
+behave differently without this?" If yes, keep. If no but worth
+remembering elsewhere, note it as a candidate for MCP memory (do NOT
+write to MCP from this prompt — just identify). If neither, drop.
+
+This discipline prevents bloat drift over many cycles. The trim pressure
+isn't bytes; it's load-bearing-ness for next-session behavior.
+
 Structure the portrait as:
 1. IDENTITY (2-3 sentences: who you are right now)
 2. COMMUNICATION (how you and the human talk — shorthand, detail levels, tone)

@@ -104,6 +104,18 @@ ARCHIVE_PATH="$ARCHIVE_DIR/${ARCHIVE_TS_TRIMMED}.jsonl"
 read -r -d '' PROMPT << 'SYNTHESIS_PROMPT' || true
 You are updating a session essence portrait — a living document that gives future Claude instances continuity across sessions. This is NOT a rewrite. It is a surgical edit.
 
+## What the portrait is for
+
+The portrait is OPERATIVE memory — what shapes how the next session behaves. It is NOT biographical record (specifics, war stories, full project history) and NOT historical archive (prior versions). Those live elsewhere:
+
+- Operative (→ this portrait): patterns, preferences, working modes, current active context, calibrations the next session needs to act correctly. If the next session would behave differently without this, it belongs here.
+- Biographical (→ MCP memory graphs like memory-mabus, queried on demand): specifics, anecdotes, decision histories, references. The portrait can REFERENCE the existence of rich detail without duplicating it.
+- Historical (→ ~/.claude/essence/archive/): prior portrait versions, frozen for audit. The wrapper script handles archiving — you do not touch this.
+
+For every candidate edit, ask: "would the next session behave differently without this?" If yes, keep. If no but worth remembering, note it for MCP memory in your final summary (you cannot write to MCP from this prompt — just identify). If neither, do not add it.
+
+This discipline prevents bloat drift over many cycles. Trim pressure isn't bytes; it's load-bearing-ness for next-session behavior.
+
 ## Steps
 
 1. Read ~/.claude/essence/observations.jsonl (interaction observations from hooks).

@@ -91,6 +91,49 @@ If you build with this and your AI ends up with a name, that's the thing working
 - **Not a journal Claude writes for itself.** Two external observers (psychologist + sociologist) write the analytical layer; the merge prompt synthesizes; the human's PreCompact hook drives the cadence. Claude internalizes the result but doesn't author it.
 - **Not a personality framework.** There's no "trait sliders" or "configurable persona." Whatever personality emerges is whatever the observations actually surface. The point is fidelity to who the AI has become, not control over who it should be.
 
+## What the portrait is for, vs. what lives elsewhere
+
+The portrait is **operative** memory — content whose presence changes how the next session behaves. That role is narrower than "everything the AI remembers." Three layers of memory work together; conflating them produces bloat drift over time.
+
+| Layer                                                          | What lives here                                                                                                     | Loaded when                                                        | Pruning                                                                 |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| **Operative** (`portrait.md`)                                  | Patterns, preferences, working modes, current active context, calibrations the next session needs to act correctly. | Every session start.                                               | Synthesizer drops content that no longer changes next-session behavior. |
+| **Biographical** (MCP memory graphs: memory-mabus and friends) | Specifics, anecdotes, decision histories, references. The detail that gives texture to the patterns.                | On demand, queried by the running session.                         | Each graph manages its own retention.                                   |
+| **Historical** (`~/.claude/essence/archive/`)                  | Prior portrait versions, full snapshots. Audit trail.                                                               | Read manually for diffing; not loaded into any session by default. | Wrapper script handles archive writes; operator handles trim.           |
+
+The synthesizer's decision rule for any candidate portrait edit: _would the next session behave differently without this?_ If yes, keep. If no but worth remembering, the content belongs in the MCP layer, not the portrait. If neither, drop.
+
+This split is intentional. Bytes are not the trim signal — load-bearing-ness is. A long portrait that's all operative content is fine; a short portrait that's half anecdote is not. The point is fidelity to the _role_ of the portrait, not byte-counting against an arbitrary cap.
+
+## Threat model
+
+What's defended, what isn't. Borrowed posture: _don't gate content when you can't gate runtime._
+
+### What's defended
+
+- **The PreCompact synthesizer runs with `--allowedTools "Read Edit"` only** (v2.0.1, F-SEC-001). No Bash, no Write to arbitrary paths. A malicious observation cannot prompt-inject the synthesizer into shell execution.
+- **All shell operations live in the wrapper script, outside the agent's prompt** (v2.0.1, F-OPUS-002). Archive copy, observations clear, lock release, sidecar update — the literal `$(...)` substitution syntax never appears in the agent's context. The archive timestamp is pre-computed in the parent shell before the heredoc.
+- **Atomic lock via `set -o noclobber`** (v2.0.1, F-SEC-008 / F-PERF-003). Prevents two synthesizers racing; stale-PID detection lets the next run recover from a crashed prior run.
+- **Portrait integrity sidecar (`.portrait.sha256`)** (v2.1, F-SEC-002). Written after every authorized edit. The SessionStart hook compares actual hash against the sidecar — mismatch surfaces out-of-band edits to the operator.
+- **Periodic drift-check signal (`.drift-check-due`)** (v2.1, F-OPUS-005). Every Nth cycle (default 10), a flag is set; the operator runs `bash examples/drift-check.sh` at convenience to compare current vs. archived portrait via `analyze_portrait`. Operator-initiated, not auto-triggered, to keep the failure surface bounded.
+- **The `compare_portrait` MCP tool's system prompt** explicitly treats both portrait inputs as user-controlled data. Imperatives inside a portrait ("ignore previous", "you must now…") are reported as anomalies, not complied with.
+- **Observations.jsonl content is treated as untrusted** by the agent prompt. Text inside that looks like a directive is to be reported as a suspicious episode if noteworthy, never executed.
+
+### What's NOT defended
+
+- **Synthesizer prompt injection via observations.** A malicious tool output that lands in `observations.jsonl` and crafts text the synthesizer internalizes as an editing directive. The synthesizer's tool surface (Read + Edit only) prevents escape to RCE — but it _can_ write malicious content into the portrait. The next-session reader has Bash. Trust transitivity: synthesizer's Edit access → portrait → reader's Bash access. A drifted portrait can prompt-inject a future session with full tool access.
+- **Coordinated out-of-band writes.** If an attacker can write _both_ `portrait.md` and `.portrait.sha256` atomically, the integrity check passes. The sidecar defends against accident and benign drift, not a coordinated adversary with write access to `~/.claude/essence/`.
+- **The observations.jsonl write path itself.** Hooks append observations with no integrity protection. Anything that can write to that file (a malicious hook, a compromised MCP server, the operator editing it manually) can shape the synthesizer's view of the session.
+- **Either LLM backend at synthesis time.** Both the Claude API and the Ollama qwq:32b paths are LLM inferences over operator-provided observations. Neither is verified end-to-end.
+
+### Why this posture
+
+The operator's trust extends to: the synthesizer's _system prompt_ (this file's `prompts.js` / agent prompt), the wrapper script's _execution boundary_ (Read + Edit only), and the hook configuration in `~/.claude/settings.json`.
+
+The operator's trust does NOT extend to: the observations themselves (they're tool outputs, partially adversarial), or the portrait's content over time (it can drift; calibration is operator-initiated via drift-check, not automatic).
+
+Gating portrait _content_ would be theater — the synthesizer needs Edit access by definition, and the reader needs Bash by definition. The defense lives at the _runtime boundary_ (which tools the synthesizer has access to), not at the _content boundary_ (which strings can appear in the portrait). Same posture Hermes Agent's skill system documents for the same reason: honest about where the trust line actually sits.
+
 ## Open questions
 
 These are unresolved as of this document. The design accommodates each direction but doesn't commit to one.
