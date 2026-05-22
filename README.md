@@ -415,4 +415,4 @@ The v2.0.1+ PreCompact supervisor writes `~/.claude/essence/synthesis-status.jso
 
 ## License
 
-MIT
+[GNU AGPLv3 or later](./LICENSE). Open-source, copyleft for network use — anyone running this as a service must publish their modifications under the same license.
