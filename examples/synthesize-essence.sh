@@ -35,11 +35,12 @@ ESSENCE_DIR="${ESSENCE_DIR:-$HOME/.claude/essence}"
 OBS_FILE="$ESSENCE_DIR/observations.jsonl"
 PORTRAIT_FILE="$ESSENCE_DIR/portrait.md"
 ARCHIVE_DIR="$ESSENCE_DIR/archive"
+PORTRAITS_DIR="$ESSENCE_DIR/portraits"
 LOCK_FILE="$ESSENCE_DIR/.synthesis-running"
 STATUS_FILE="$ESSENCE_DIR/synthesis-status.json"
 LOG_FILE="$ESSENCE_DIR/last-synthesis.log"
 
-mkdir -p "$ESSENCE_DIR" "$ARCHIVE_DIR"
+mkdir -p "$ESSENCE_DIR" "$ARCHIVE_DIR" "$PORTRAITS_DIR"
 
 # --- Lock acquisition (atomic, with stale-lock recovery) -----------------------
 # F-SEC-008 / F-PERF-003: set -o noclobber + > FILE is atomic. If the file
@@ -95,6 +96,7 @@ fi
 ARCHIVE_TS="$(date +%Y%m%d-%H%M%S-%N)"
 ARCHIVE_TS_TRIMMED="${ARCHIVE_TS:0:22}"
 ARCHIVE_PATH="$ARCHIVE_DIR/${ARCHIVE_TS_TRIMMED}.jsonl"
+PORTRAIT_SNAPSHOT_PATH="$PORTRAITS_DIR/${ARCHIVE_TS_TRIMMED}.md"
 
 # --- Build the agent prompt ---------------------------------------------------
 # Single-quoted heredoc => no shell-side variable expansion. The agent gets
@@ -217,6 +219,22 @@ trap - EXIT INT TERM HUP
     PORTRAIT_CHANGED=false
   fi
 
+  # --- v2.2: Portrait snapshot (recovery + drift audit) -------------------
+  # When the agent actually edited the portrait, copy the new version into
+  # portraits/ with the SAME timestamp as the observations archive. That
+  # pairing lets a future audit reconstruct exactly which observation batch
+  # produced which portrait revision, and gives a rollback target if a bad
+  # synthesis ever corrupts portrait.md.
+  PORTRAIT_SNAPSHOTTED=false
+  if [ "$PORTRAIT_CHANGED" = "true" ] && [ -f "$PORTRAIT_FILE" ]; then
+    if cp "$PORTRAIT_FILE" "$PORTRAIT_SNAPSHOT_PATH" 2>>"$LOG_FILE"; then
+      PORTRAIT_SNAPSHOTTED=true
+      echo "Essence: portrait snapshot saved → $(basename "$PORTRAIT_SNAPSHOT_PATH")" >> "$LOG_FILE"
+    else
+      echo "Essence: WARNING — portrait snapshot copy failed" >> "$LOG_FILE"
+    fi
+  fi
+
   # --- v2.1: Portrait integrity sidecar (F-SEC-002) -----------------------
   # Update .portrait.sha256 after every authorized edit. SessionStart will
   # compare the file's actual hash against this sidecar — mismatch means
@@ -274,6 +292,8 @@ trap - EXIT INT TERM HUP
   "last_run": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "agent_exit": ${AGENT_EXIT:-0},
   "portrait_changed": ${PORTRAIT_CHANGED},
+  "portrait_snapshotted": ${PORTRAIT_SNAPSHOTTED},
+  "portrait_snapshot_path": "$([ "$PORTRAIT_SNAPSHOTTED" = "true" ] && echo "$PORTRAIT_SNAPSHOT_PATH" || echo "")",
   "observations_archived_to": "$ARCHIVE_PATH",
   "log_file": "$LOG_FILE",
   "cycle": ${NEXT_CYCLE},

@@ -2,6 +2,12 @@
 
 All notable changes to Session Essence are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] — 2026-05-21
+
+### Added
+
+- **Portrait snapshots (recovery + drift audit).** When the synthesis agent actually edits `portrait.md`, the supervisor now copies the new version into `$ESSENCE_DIR/portraits/<timestamp>.md`. The snapshot uses the same timestamp as the matching observations archive in `$ESSENCE_DIR/archive/`, so any past portrait revision can be paired one-to-one with the observation batch that produced it. Snapshots only happen when `PORTRAIT_CHANGED=true`, so noop synthesis runs don't pollute the directory. Status JSON gains `portrait_snapshotted` and `portrait_snapshot_path` fields. No auto-pruning — the whole point is recovery, so retention is unbounded by default.
+
 ## [2.1.0] — 2026-05-18
 
 The deferred-from-v2.0.1 features release. Closes (or addresses-via-deployment-recipe) the four follow-ups the audit and v2.0.1 explicitly marked "not yet fixed."
