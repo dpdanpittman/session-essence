@@ -1,0 +1,109 @@
+# Session-essence presentation site — hostPath-mounted nginx pod.
+#
+# Replaces the image-based deployment (session-essence-site:latest) with
+# the same vanilla-nginx + hostPath pattern used by mabus-website-v2 and
+# (formerly) swarm-website. Future updates are just:
+#
+#   rsync source -> zaphod
+#   ssh zaphod 'cd ~/src/session-essence/site && npm run build'
+#   # pod auto-picks up dist/ on next request, no restart needed
+#
+# Served at hostPort 3401, mounted from /home/zaphod-beeblebox/src/session-essence/site/dist
+# Routed by Caddy: essence.mabus.ai (after the existing block is restructured)
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: session-essence-site-nginx
+  namespace: zaphod
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      root /usr/share/nginx/html;
+      index index.html;
+
+      location /health {
+        access_log off;
+        return 200 "ok\n";
+      }
+
+      location / {
+        try_files $uri $uri/ $uri/index.html =404;
+      }
+
+      gzip on;
+      gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+      gzip_min_length 256;
+
+      location ~ \.(css|js|woff2?|svg|png|jpg|jpeg|webp|ico)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-essence-site
+  namespace: zaphod
+  labels:
+    app: session-essence-site
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: session-essence-site
+  template:
+    metadata:
+      labels:
+        app: session-essence-site
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: zaphod
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+              hostPort: 3401
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: site-content
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+      volumes:
+        - name: site-content
+          hostPath:
+            path: /home/zaphod-beeblebox/src/session-essence/site/dist
+            type: Directory
+        - name: nginx-config
+          configMap:
+            name: session-essence-site-nginx

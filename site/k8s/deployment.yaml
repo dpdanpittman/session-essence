@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-essence-site
+  namespace: zaphod
+  labels:
+    app: session-essence-site
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: session-essence-site
+  template:
+    metadata:
+      labels:
+        app: session-essence-site
+    spec:
+      nodeName: zaphod
+      containers:
+        - name: nginx
+          image: session-essence-site:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+              hostPort: 3401
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30

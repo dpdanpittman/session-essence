@@ -1,0 +1,73 @@
+---
+---
+
+<section class="border-b border-border/40">
+  <div class="mx-auto max-w-4xl px-6 py-24">
+    <p class="font-mono text-xs uppercase tracking-[0.22em] text-muted mb-6">
+      07 — Try it
+    </p>
+    <h2 class="font-display text-3xl sm:text-4xl text-ink tracking-tight mb-8">
+      What running it looks like.
+    </h2>
+
+    <div class="grid md:grid-cols-2 gap-10">
+      <div class="space-y-4 text-ink-dim leading-relaxed">
+        <p>
+          session-essence is two pieces: an MCP server that exposes the
+          observation + synthesis tools, and a set of hook commands you
+          add to your Claude Code settings.
+        </p>
+        <p>
+          The MCP server runs anywhere with Docker. The hooks live in
+          <code class="font-mono text-xs text-accent">~/.claude/settings.json</code>.
+          Observation log and portrait live in
+          <code class="font-mono text-xs text-accent">~/.claude/essence/</code>.
+        </p>
+        <p>
+          Synthesis happens whenever you run it manually or whenever
+          PreCompact fires — typically a few times a week, depending on
+          how heavily you use Claude Code.
+        </p>
+        <p class="pt-2">
+          <a
+            href="https://github.com/dpdanpittman/session-essence"
+            target="_blank"
+            rel="noopener"
+            class="text-accent hover:text-ember underline underline-offset-4 decoration-accent/40 hover:decoration-ember"
+          >
+            Full README on GitHub →
+          </a>
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-border bg-panel-2/70 overflow-hidden">
+        <div
+          class="flex items-center gap-3 px-5 py-3 border-b border-border/60 bg-bg/40"
+        >
+          <span class="h-2.5 w-2.5 rounded-full bg-accent/70"></span>
+          <span class="font-mono text-xs text-muted">install (sketch)</span>
+        </div>
+        <pre
+          class="px-6 py-5 text-xs leading-relaxed text-ink-dim font-mono overflow-x-auto"
+        ><code>{`# 1. clone
+git clone https://github.com/dpdanpittman/session-essence ~/src/session-essence
+
+# 2. run the MCP server
+cd ~/src/session-essence
+docker compose up -d
+
+# 3. register with Claude Code
+claude mcp add --transport http session-essence \\
+  http://localhost:3250/mcp
+
+# 4. wire hooks (see README)
+$EDITOR ~/.claude/settings.json
+
+# 5. start a new Claude Code session — observations
+#    begin accumulating immediately. Synthesize when ready:
+claude mcp call session-essence synthesize_essence
+`}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>

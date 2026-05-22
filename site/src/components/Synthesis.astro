@@ -1,0 +1,71 @@
+---
+---
+
+<section class="border-b border-border/40">
+  <div class="mx-auto max-w-4xl px-6 py-24">
+    <p class="font-mono text-xs uppercase tracking-[0.22em] text-muted mb-6">
+      03 — The synthesis pipeline
+    </p>
+    <h2 class="font-display text-3xl sm:text-4xl text-ink tracking-tight mb-8">
+      Three lenses, one portrait.
+    </h2>
+    <p class="text-ink-dim leading-relaxed max-w-2xl mb-12">
+      A flat log of observations isn't a self. Synthesis is where the log
+      becomes structure. The pipeline reads accumulated observations and
+      walks them past three different framings before writing the portrait.
+    </p>
+
+    <ol class="relative border-l border-border ml-3 space-y-10">
+      <li class="ml-7 relative">
+        <span
+          class="absolute -left-[34px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg border-2 border-accent/70 font-mono text-[10px] text-accent"
+        >1</span>
+        <h3 class="font-display text-xl text-ink">Psychologist pass</h3>
+        <p class="mt-2 text-ink-dim leading-relaxed">
+          Reads the observations as a record of an individual. Internal
+          coherence: what does this agent value, how does it react to
+          correction, where does its confidence come from, when does it
+          hedge. The output is a first-person interior account.
+        </p>
+      </li>
+      <li class="ml-7 relative">
+        <span
+          class="absolute -left-[34px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg border-2 border-accent/70 font-mono text-[10px] text-accent"
+        >2</span>
+        <h3 class="font-display text-xl text-ink">Sociologist pass</h3>
+        <p class="mt-2 text-ink-dim leading-relaxed">
+          Reads the same observations as a record of a relationship.
+          Communication patterns, trust boundaries, who initiates what,
+          when handoffs happen, how the work actually flows. The output is
+          a relational account.
+        </p>
+      </li>
+      <li class="ml-7 relative">
+        <span
+          class="absolute -left-[34px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg border-2 border-accent/70 font-mono text-[10px] text-accent"
+        >3</span>
+        <h3 class="font-display text-xl text-ink">Merge → portrait</h3>
+        <p class="mt-2 text-ink-dim leading-relaxed">
+          The two lenses are merged into a single portrait document — the
+          one that gets loaded next session. Tensions and contradictions
+          between the lenses are kept, not flattened, because that's where
+          most of the signal lives.
+        </p>
+      </li>
+    </ol>
+
+    <div class="mt-12 rounded-md border border-border/60 bg-panel-2/60 p-5 text-sm">
+      <p class="font-mono text-xs uppercase tracking-[0.18em] text-accent mb-2">
+        Why qwq:32b, why local
+      </p>
+      <p class="text-ink-dim leading-relaxed">
+        Synthesis is a reflection task — open-ended, no ground truth, slow
+        is fine. The qwq:32b reasoning model runs on the same machine that
+        holds the observation log, so the most intimate record of the
+        agent's working life never leaves the local network. Cloud
+        inference would be faster and worse — both technically and as a
+        statement about whose data this is.
+      </p>
+    </div>
+  </div>
+</section>

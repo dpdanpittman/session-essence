@@ -1,0 +1,38 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-border/40 bg-panel/40">
+  <div
+    class="mx-auto max-w-4xl px-6 py-12 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6"
+  >
+    <div>
+      <p class="font-display text-lg text-ink">session-essence</p>
+      <p class="font-mono text-xs text-muted mt-1">
+        born from itself · synthesized locally · {year}
+      </p>
+    </div>
+    <nav class="flex flex-wrap gap-6 font-mono text-xs uppercase tracking-[0.2em]">
+      <a
+        href="https://github.com/dpdanpittman/session-essence"
+        target="_blank"
+        rel="noopener"
+        class="text-ink-dim hover:text-accent transition-colors"
+      >
+        github
+      </a>
+      <a
+        href="https://mabus.ai"
+        class="text-ink-dim hover:text-accent transition-colors"
+      >
+        mabus.ai
+      </a>
+      <a
+        href="https://mabus.ai/blog"
+        class="text-ink-dim hover:text-accent transition-colors"
+      >
+        blog
+      </a>
+    </nav>
+  </div>
+</footer>

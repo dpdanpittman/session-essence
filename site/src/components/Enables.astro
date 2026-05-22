@@ -1,0 +1,50 @@
+---
+const wins = [
+  {
+    title: 'Shorthand persists',
+    body: 'Six months in, your shorthand still works. The agent knows that "zaphod .56" means a specific deploy target, that "standalone repo + symlink" is your default pattern, that you read diffs and don\'t want a recap.',
+  },
+  {
+    title: 'Corrections compound',
+    body: 'Every "no, not that way" you\'ve given the agent shows up as a refined preference next session. Identity-by-accumulation, not identity-by-prompt-injection.',
+  },
+  {
+    title: 'Relational shape, not facts',
+    body: "The portrait isn't a database of facts about you. It's a description of how the work between you actually flows — who initiates what, where handoffs happen, when to push back vs. defer.",
+  },
+  {
+    title: 'Tool-agnostic at the file layer',
+    body: 'Observations are JSONL. The portrait is markdown. The synthesis pipeline is replaceable. Nothing here locks you to Claude Code specifically — adapt the hook set and run.',
+  },
+  {
+    title: 'Privacy by design',
+    body: 'The observation log and synthesis both stay on your hardware. The 32B reasoning model that synthesizes the portrait is local. The most intimate record of your working life never leaves the machine.',
+  },
+  {
+    title: "Doesn't replace context engineering",
+    body: 'Project docs, CLAUDE.md files, MCP memory — those still do their job. The portrait sits one layer up: who the agent is, not what the project is.',
+  },
+];
+---
+
+<section class="border-b border-border/40 bg-panel/30">
+  <div class="mx-auto max-w-4xl px-6 py-24">
+    <p class="font-mono text-xs uppercase tracking-[0.22em] text-muted mb-6">
+      06 — What this enables
+    </p>
+    <h2 class="font-display text-3xl sm:text-4xl text-ink tracking-tight mb-12">
+      Six second-order effects.
+    </h2>
+
+    <div class="grid sm:grid-cols-2 gap-5">
+      {
+        wins.map((w) => (
+          <div class="rounded-md border border-border/60 bg-bg/40 p-6">
+            <h3 class="font-display text-lg text-ink mb-2">{w.title}</h3>
+            <p class="text-sm text-ink-dim leading-relaxed">{w.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
